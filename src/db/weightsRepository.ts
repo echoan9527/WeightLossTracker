@@ -14,6 +14,14 @@ export async function getAllWeights(): Promise<Weight[]> {
   return db.getAllAsync<Weight>('SELECT * FROM weights ORDER BY date ASC');
 }
 
+export async function getWeightByDate(date: string): Promise<Weight | null> {
+  const db = getDB();
+  return db.getFirstAsync<Weight>(
+    'SELECT * FROM weights WHERE date = ? ORDER BY id DESC LIMIT 1',
+    [date]
+  );
+}
+
 export async function getWeightsByDateRange(from: string, to: string): Promise<Weight[]> {
   const db = getDB();
   return db.getAllAsync<Weight>(

@@ -4,18 +4,17 @@ import { Modal, View, Text, TextInput, TouchableOpacity,
 import * as ImagePicker from 'expo-image-picker';
 import { insertMeal, getMealsByDate } from '../db/mealsRepository';
 import { useAppStore } from '../store/useAppStore';
-import { Meal, MealMode, MealType } from '../types';
+import { MealMode, MealType } from '../types';
 
-const today = () => new Date().toISOString().slice(0, 10);
 const MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 const MEAL_LABELS: Record<MealType, string> = { breakfast: '早餐', lunch: '午餐', dinner: '晚餐', snack: '加餐' };
 const MODES: { id: MealMode; label: string }[] = [
   { id: 'A', label: 'A — 仅文字' }, { id: 'B', label: 'B — 文字+热量' }, { id: 'C', label: 'C — 文字+宏量' }
 ];
 
-interface Props { visible: boolean; onClose(): void; onSaved(meal: Meal): void; }
+interface Props { visible: boolean; date: string; onClose(): void; onSaved(): void; }
 
-export default function AddMealModal({ visible, onClose, onSaved }: Props) {
+export default function AddMealModal({ visible, date, onClose, onSaved }: Props) {
   const { setTodayMeals } = useAppStore();
   const [mealType, setMealType] = useState<MealType>('breakfast');
   const [mode, setMode] = useState<MealMode>('A');
@@ -25,6 +24,7 @@ export default function AddMealModal({ visible, onClose, onSaved }: Props) {
   const [carbs, setCarbs] = useState('');
   const [fat, setFat] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
 
   async function pickPhoto() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -45,19 +45,25 @@ export default function AddMealModal({ visible, onClose, onSaved }: Props) {
   }
 
   async function handleSave() {
+    if (saving) return;
     if (!desc.trim()) { Alert.alert('请输入食物描述'); return; }
-    await insertMeal({
-      date: today(), meal_type: mealType, description: desc.trim(), mode,
-      calories: mode !== 'A' ? parseInt(calories) || undefined : undefined,
-      protein: mode === 'C' ? parseFloat(protein) || undefined : undefined,
-      carbs: mode === 'C' ? parseFloat(carbs) || undefined : undefined,
-      fat: mode === 'C' ? parseFloat(fat) || undefined : undefined,
-      photos,
-    });
-    const meals = await getMealsByDate(today());
-    setTodayMeals(meals);
-    onSaved(meals[meals.length - 1]);
-    setDesc(''); setCalories(''); setProtein(''); setCarbs(''); setFat(''); setPhotos([]);
+    setSaving(true);
+    try {
+      await insertMeal({
+        date, meal_type: mealType, description: desc.trim(), mode,
+        calories: mode !== 'A' ? parseInt(calories) || undefined : undefined,
+        protein: mode === 'C' ? parseFloat(protein) || undefined : undefined,
+        carbs: mode === 'C' ? parseFloat(carbs) || undefined : undefined,
+        fat: mode === 'C' ? parseFloat(fat) || undefined : undefined,
+        photos,
+      });
+      const meals = await getMealsByDate(date);
+      setTodayMeals(meals);
+      onSaved();
+      setDesc(''); setCalories(''); setProtein(''); setCarbs(''); setFat(''); setPhotos([]);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -94,7 +100,9 @@ export default function AddMealModal({ visible, onClose, onSaved }: Props) {
           <TouchableOpacity style={s.photoBtn} onPress={pickPhoto}><Text>从相册选</Text></TouchableOpacity>
         </View>
         <View style={s.row}>{photos.map((uri, i) => <Image key={i} source={{ uri }} style={s.thumb} />)}</View>
-        <TouchableOpacity style={s.saveBtn} onPress={handleSave}><Text style={s.saveTxt}>保存</Text></TouchableOpacity>
+        <TouchableOpacity style={s.saveBtn} onPress={handleSave} disabled={saving}>
+          <Text style={s.saveTxt}>{saving ? '保存中...' : '保存'}</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={s.cancelBtn} onPress={onClose}><Text>取消</Text></TouchableOpacity>
       </ScrollView>
     </Modal>
