@@ -9,6 +9,14 @@ export async function insertWeight(date: string, weight: number): Promise<void> 
   );
 }
 
+export async function updateWeight(id: number, weight: number): Promise<void> {
+  const db = getDB();
+  await db.runAsync(
+    'UPDATE weights SET weight = ? WHERE id = ?',
+    [weight, id]
+  );
+}
+
 export async function getAllWeights(): Promise<Weight[]> {
   const db = getDB();
   return db.getAllAsync<Weight>('SELECT * FROM weights ORDER BY date ASC');

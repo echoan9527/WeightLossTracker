@@ -1,7 +1,7 @@
 import { mockDb } from '../../__mocks__/expo-sqlite';
 jest.mock('expo-sqlite');
 jest.mock('../../src/db/database', () => ({ getDB: () => mockDb }));
-import { insertWeight, getAllWeights, getWeightByDate } from '../../src/db/weightsRepository';
+import { insertWeight, updateWeight, getAllWeights, getWeightByDate } from '../../src/db/weightsRepository';
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -10,6 +10,14 @@ test('insertWeight calls runAsync with date and weight', async () => {
   expect(mockDb.runAsync).toHaveBeenCalledWith(
     'INSERT INTO weights (date, weight, created_at) VALUES (?, ?, ?)',
     expect.arrayContaining(['2026-07-05', 75.5])
+  );
+});
+
+test('updateWeight updates existing weight row', async () => {
+  await updateWeight(2, 73);
+  expect(mockDb.runAsync).toHaveBeenCalledWith(
+    'UPDATE weights SET weight = ? WHERE id = ?',
+    [73, 2]
   );
 });
 

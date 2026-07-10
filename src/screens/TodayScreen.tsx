@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   Modal,
+  ScrollView,
   View,
   Text,
   TextInput,
@@ -11,13 +12,15 @@ import {
 import { Calendar, LocaleConfig } from "react-native-calendars";
 import type { DateData } from "react-native-calendars";
 import { useAppStore } from "../store/useAppStore";
-import { getMealsByDate } from "../db/mealsRepository";
+import { deleteMeal, getMealsByDate } from "../db/mealsRepository";
 import {
   insertWeight,
   getAllWeights,
   getWeightByDate,
+  updateWeight,
 } from "../db/weightsRepository";
 import AddMealModal from "./AddMealModal";
+import { Meal } from "../types";
 
 const MEAL_TYPE_LABELS = {
   breakfast: "早餐 Breakfast",
@@ -90,6 +93,7 @@ export default function TodayScreen() {
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [weightInput, setWeightInput] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
 
   useEffect(() => {
     async function loadSelectedDate() {
@@ -108,7 +112,8 @@ export default function TodayScreen() {
   async function saveWeight() {
     const val = parseFloat(weightInput);
     if (isNaN(val)) return Alert.alert("请输入有效体重");
-    await insertWeight(selectedDate, val);
+    if (todayWeight?.date === selectedDate) await updateWeight(todayWeight.id, val);
+    else await insertWeight(selectedDate, val);
     const [all, weight] = await Promise.all([
       getAllWeights(),
       getWeightByDate(selectedDate),
@@ -121,6 +126,46 @@ export default function TodayScreen() {
   function selectDate(day: DateData) {
     setSelectedDate(day.dateString);
     setCalendarVisible(false);
+  }
+
+  function openAddMeal() {
+    setEditingMeal(null);
+    setShowModal(true);
+  }
+
+  function openEditMeal(meal: Meal) {
+    setEditingMeal(meal);
+    setShowModal(true);
+  }
+
+  function closeMealModal() {
+    setShowModal(false);
+    setEditingMeal(null);
+  }
+
+  function formatMealMeta(meal: Meal) {
+    const parts = [
+      meal.calories != null ? `${meal.calories} kcal` : null,
+      meal.protein != null ? `蛋白 ${meal.protein}g` : null,
+      meal.carbs != null ? `碳水 ${meal.carbs}g` : null,
+      meal.fat != null ? `脂肪 ${meal.fat}g` : null,
+    ].filter(Boolean);
+    return parts.join(' · ');
+  }
+
+  function confirmDeleteMeal(meal: Meal) {
+    Alert.alert("删除饮食记录", `确定删除“${meal.description}”吗？`, [
+      { text: "取消", style: "cancel" },
+      {
+        text: "删除",
+        style: "destructive",
+        onPress: async () => {
+          await deleteMeal(meal.id);
+          const meals = await getMealsByDate(selectedDate);
+          setTodayMeals(meals);
+        },
+      },
+    ]);
   }
 
   const currentDate = today();
@@ -140,7 +185,7 @@ export default function TodayScreen() {
   const groups = ["breakfast", "lunch", "dinner", "snack"] as const;
 
   return (
-    <View style={s.container}>
+    <ScrollView style={s.container} contentContainerStyle={s.content}>
       <TouchableOpacity
         accessibilityRole="button"
         style={s.dateField}
@@ -177,27 +222,49 @@ export default function TodayScreen() {
           <View key={g}>
             <Text style={s.group}>{MEAL_TYPE_LABELS[g]}</Text>
             {items.length > 0 ? (
-              items.map((m) => (
-                <Text key={m.id} style={s.item}>
-                  {m.description}
-                </Text>
-              ))
+              items.map((m) => {
+                const meta = formatMealMeta(m);
+                return (
+                  <View key={m.id} style={s.mealItem}>
+                    <TouchableOpacity
+                      style={s.mealMain}
+                      onPress={() => openEditMeal(m)}
+                    >
+                      <Text style={s.item}>{m.description}</Text>
+                      {meta ? <Text style={s.mealMeta}>{meta}</Text> : null}
+                    </TouchableOpacity>
+                    <View style={s.mealActions}>
+                      <TouchableOpacity
+                        style={s.actionBtn}
+                        onPress={() => openEditMeal(m)}
+                      >
+                        <Text style={s.actionEdit}>编辑</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={s.actionBtn}
+                        onPress={() => confirmDeleteMeal(m)}
+                      >
+                        <Text style={s.actionDelete}>删除</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })
             ) : (
               <Text style={s.empty}>无</Text>
             )}
           </View>
         );
       })}
-      <TouchableOpacity style={s.addBtn} onPress={() => setShowModal(true)}>
+      <TouchableOpacity style={s.addBtn} onPress={openAddMeal}>
         <Text style={s.addT}>+ 添加饮食</Text>
       </TouchableOpacity>
       <AddMealModal
         visible={showModal}
         date={selectedDate}
-        onClose={() => setShowModal(false)}
-        onSaved={() => {
-          setShowModal(false);
-        }}
+        meal={editingMeal}
+        onClose={closeMealModal}
+        onSaved={closeMealModal}
       />
       {calendarVisible && (
         <Modal
@@ -260,12 +327,13 @@ export default function TodayScreen() {
           </View>
         </Modal>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
 const s = StyleSheet.create({
   container: { flex: 1, padding: 16 },
+  content: { paddingBottom: 24 },
   dateField: {
     minHeight: 74,
     borderWidth: 1,
@@ -326,7 +394,34 @@ const s = StyleSheet.create({
   btnT: { color: "#fff" },
   current: { marginBottom: 8, color: "#555" },
   group: { fontWeight: "bold", marginTop: 12, textTransform: "capitalize" },
-  item: { paddingLeft: 8, paddingVertical: 2, color: "#333" },
+  mealItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 8,
+  },
+  mealMain: { flex: 1, paddingRight: 12 },
+  item: { color: "#333", fontSize: 16, fontWeight: "600" },
+  mealMeta: { color: "#667085", marginTop: 4, fontSize: 13 },
+  mealActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  actionBtn: {
+    minWidth: 44,
+    minHeight: 34,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionEdit: { color: "#2e86de", fontWeight: "700" },
+  actionDelete: { color: "#d92d20", fontWeight: "700" },
   empty: { paddingLeft: 8, paddingVertical: 2, color: "#666" },
   addBtn: {
     marginTop: 20,

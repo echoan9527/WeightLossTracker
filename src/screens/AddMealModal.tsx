@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, View, Text, TextInput, TouchableOpacity,
          ScrollView, Image, StyleSheet, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { insertMeal, getMealsByDate } from '../db/mealsRepository';
+import { insertMeal, getMealsByDate, updateMeal } from '../db/mealsRepository';
 import { useAppStore } from '../store/useAppStore';
-import { MealMode, MealType } from '../types';
+import { Meal, MealMode, MealType } from '../types';
 
 const MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 const MEAL_LABELS: Record<MealType, string> = { breakfast: '早餐', lunch: '午餐', dinner: '晚餐', snack: '加餐' };
@@ -12,9 +12,15 @@ const MODES: { id: MealMode; label: string }[] = [
   { id: 'A', label: 'A — 仅文字' }, { id: 'B', label: 'B — 文字+热量' }, { id: 'C', label: 'C — 文字+宏量' }
 ];
 
-interface Props { visible: boolean; date: string; onClose(): void; onSaved(): void; }
+interface Props {
+  visible: boolean;
+  date: string;
+  meal?: Meal | null;
+  onClose(): void;
+  onSaved(): void;
+}
 
-export default function AddMealModal({ visible, date, onClose, onSaved }: Props) {
+export default function AddMealModal({ visible, date, meal, onClose, onSaved }: Props) {
   const { setTodayMeals } = useAppStore();
   const [mealType, setMealType] = useState<MealType>('breakfast');
   const [mode, setMode] = useState<MealMode>('A');
@@ -25,6 +31,19 @@ export default function AddMealModal({ visible, date, onClose, onSaved }: Props)
   const [fat, setFat] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const isEditing = Boolean(meal);
+
+  useEffect(() => {
+    if (!visible) return;
+    setMealType(meal?.meal_type ?? 'breakfast');
+    setMode(meal?.mode ?? 'A');
+    setDesc(meal?.description ?? '');
+    setCalories(meal?.calories != null ? String(meal.calories) : '');
+    setProtein(meal?.protein != null ? String(meal.protein) : '');
+    setCarbs(meal?.carbs != null ? String(meal.carbs) : '');
+    setFat(meal?.fat != null ? String(meal.fat) : '');
+    setPhotos(meal?.photos ?? []);
+  }, [visible, meal]);
 
   async function pickPhoto() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -49,14 +68,16 @@ export default function AddMealModal({ visible, date, onClose, onSaved }: Props)
     if (!desc.trim()) { Alert.alert('请输入食物描述'); return; }
     setSaving(true);
     try {
-      await insertMeal({
+      const mealData = {
         date, meal_type: mealType, description: desc.trim(), mode,
         calories: mode !== 'A' ? parseInt(calories) || undefined : undefined,
         protein: mode === 'C' ? parseFloat(protein) || undefined : undefined,
         carbs: mode === 'C' ? parseFloat(carbs) || undefined : undefined,
         fat: mode === 'C' ? parseFloat(fat) || undefined : undefined,
         photos,
-      });
+      };
+      if (meal) await updateMeal({ id: meal.id, ...mealData });
+      else await insertMeal(mealData);
       const meals = await getMealsByDate(date);
       setTodayMeals(meals);
       onSaved();
@@ -69,7 +90,7 @@ export default function AddMealModal({ visible, date, onClose, onSaved }: Props)
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <ScrollView style={s.container}>
-        <Text style={s.title}>添加饮食</Text>
+        <Text style={s.title}>{isEditing ? '编辑饮食' : '添加饮食'}</Text>
         <Text style={s.label}>餐次</Text>
         <View style={s.row}>{MEAL_TYPES.map(t => (
           <TouchableOpacity key={t} style={[s.chip, mealType === t && s.chipActive]} onPress={() => setMealType(t)}>
@@ -101,7 +122,7 @@ export default function AddMealModal({ visible, date, onClose, onSaved }: Props)
         </View>
         <View style={s.row}>{photos.map((uri, i) => <Image key={i} source={{ uri }} style={s.thumb} />)}</View>
         <TouchableOpacity style={s.saveBtn} onPress={handleSave} disabled={saving}>
-          <Text style={s.saveTxt}>{saving ? '保存中...' : '保存'}</Text>
+          <Text style={s.saveTxt}>{saving ? '保存中...' : isEditing ? '保存修改' : '保存'}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.cancelBtn} onPress={onClose}><Text>取消</Text></TouchableOpacity>
       </ScrollView>
