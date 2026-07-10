@@ -169,6 +169,7 @@ export default function TodayScreen() {
   }
 
   const currentDate = today();
+  const isCurrentDate = selectedDate === currentDate;
   const markedDates = {
     [currentDate]: {
       marked: true,
@@ -212,7 +213,7 @@ export default function TodayScreen() {
       </View>
       {todayWeight && (
         <Text style={s.current}>
-          {selectedDate === currentDate ? "当前" : "记录"}：{todayWeight.weight}{" "}
+          {isCurrentDate ? "当前" : "记录"}：{todayWeight.weight}{" "}
           kg
         </Text>
       )}
@@ -240,12 +241,14 @@ export default function TodayScreen() {
                       >
                         <Text style={s.actionEdit}>编辑</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={s.actionBtn}
-                        onPress={() => confirmDeleteMeal(m)}
-                      >
-                        <Text style={s.actionDelete}>删除</Text>
-                      </TouchableOpacity>
+                      {isCurrentDate && (
+                        <TouchableOpacity
+                          style={s.actionBtn}
+                          onPress={() => confirmDeleteMeal(m)}
+                        >
+                          <Text style={s.actionDelete}>删除</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   </View>
                 );
@@ -256,9 +259,11 @@ export default function TodayScreen() {
           </View>
         );
       })}
-      <TouchableOpacity style={s.addBtn} onPress={openAddMeal}>
-        <Text style={s.addT}>+ 添加饮食</Text>
-      </TouchableOpacity>
+      {isCurrentDate && (
+        <TouchableOpacity style={s.addBtn} onPress={openAddMeal}>
+          <Text style={s.addT}>+ 添加饮食</Text>
+        </TouchableOpacity>
+      )}
       <AddMealModal
         visible={showModal}
         date={selectedDate}
