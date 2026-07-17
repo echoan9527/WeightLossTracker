@@ -1,7 +1,7 @@
 import { mockDb } from '../../__mocks__/expo-sqlite';
 jest.mock('expo-sqlite');
 jest.mock('../../src/db/database', () => ({ getDB: () => mockDb }));
-import { insertWeight, updateWeight, getAllWeights, getWeightByDate } from '../../src/db/weightsRepository';
+import { insertWeight, updateWeight, deleteWeight, getAllWeights, getWeightByDate, getPreviousWeightByDate } from '../../src/db/weightsRepository';
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -18,6 +18,14 @@ test('updateWeight updates existing weight row', async () => {
   expect(mockDb.runAsync).toHaveBeenCalledWith(
     'UPDATE weights SET weight = ? WHERE id = ?',
     [73, 2]
+  );
+});
+
+test('deleteWeight removes row by id', async () => {
+  await deleteWeight(7);
+  expect(mockDb.runAsync).toHaveBeenCalledWith(
+    'DELETE FROM weights WHERE id = ?',
+    [7]
   );
 });
 
@@ -39,4 +47,16 @@ test('getWeightByDate returns latest weight for date', async () => {
     ['2026-07-05']
   );
   expect(result?.weight).toBe(75.2);
+});
+
+test('getPreviousWeightByDate returns latest previous weight', async () => {
+  mockDb.getFirstAsync.mockResolvedValueOnce(
+    { id: 1, date: '2026-07-04', weight: 75.5, created_at: '2026-07-04T10:00:00' }
+  );
+  const result = await getPreviousWeightByDate('2026-07-05');
+  expect(mockDb.getFirstAsync).toHaveBeenCalledWith(
+    'SELECT * FROM weights WHERE date < ? ORDER BY date DESC, id DESC LIMIT 1',
+    ['2026-07-05']
+  );
+  expect(result?.weight).toBe(75.5);
 });

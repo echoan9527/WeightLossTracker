@@ -22,12 +22,14 @@ import { getMealsByDate, getMealsByDateRange } from "../db/mealsRepository";
 import { Meal, Weight } from "../types";
 import { colors, spacing, radius, shadow } from "../styles/theme";
 
-type Range = "7d" | "30d" | "all";
 type ChartPoint = { label: string; value: number };
 const CHART_HEIGHT = 154;
 const Y_AXIS_LABEL_WIDTH = 38;
 const CALORIE_Y_AXIS_LABEL_WIDTH = 44;
 const CHART_HORIZONTAL_INSET = 18;
+const LINE_CHART_HORIZONTAL_INSET = 24;
+const LINE_CHART_FIT_POINT_LIMIT = 12;
+const LINE_CHART_LABEL_COUNT = 4;
 const MEAL_TYPE_LABELS = {
   breakfast: "早餐",
   lunch: "午餐",
@@ -56,15 +58,15 @@ function getLatestWeightsByDate(weights: Weight[]) {
   );
 }
 
-function formatChartValue(value: number, valueSuffix: string) {
-  if (value <= 0) return "";
-  return valueSuffix ? `${value}${valueSuffix}` : String(value);
-}
-
 function getCalorieChartMax(value: number) {
   if (value <= 0) return 100;
   if (value <= 1000) return Math.ceil(value / 200) * 200;
   return Math.ceil(value / 500) * 500;
+}
+
+function formatChartValue(value: number, valueSuffix: string) {
+  if (value <= 0) return "";
+  return valueSuffix ? `${value}${valueSuffix}` : String(value);
 }
 
 function TrendLineChart({
@@ -88,24 +90,36 @@ function TrendLineChart({
   const compactSpacing =
     data.length > 1
       ? Math.max(
-          (chartViewportWidth - CHART_HORIZONTAL_INSET * 2) / (data.length - 1),
+          (chartViewportWidth - LINE_CHART_HORIZONTAL_INSET * 2) /
+            (data.length - 1),
           1,
         )
       : chartViewportWidth / 2;
   const spacingValue =
-    data.length <= 8 ? compactSpacing : valueSuffix ? 56 : 48;
-  const showEvery = Math.max(1, Math.ceil(data.length / 6));
+    data.length <= LINE_CHART_FIT_POINT_LIMIT
+      ? compactSpacing
+      : valueSuffix
+        ? 56
+        : 48;
+  const showEvery = Math.max(
+    1,
+    Math.ceil((data.length - 1) / LINE_CHART_LABEL_COUNT),
+  );
   const chartData: lineDataItem[] = data.map((point, index) => {
-    const showLabel = data.length <= 8 || index % showEvery === 0;
+    const showLabel =
+      index === 0 || index === data.length - 1 || index % showEvery === 0;
+    const isFirst = index === 0;
+    const isLast = index === data.length - 1;
 
     return {
       value: point.value,
       label: showLabel ? point.label : "",
       dataPointText: formatChartValue(point.value, valueSuffix),
-      textShiftX: valueSuffix ? -16 : -12,
+      textShiftX: isFirst ? 8 : isLast ? -36 : valueSuffix ? -16 : -12,
       textShiftY: 12,
     };
   });
+  const fitsInViewport = data.length <= LINE_CHART_FIT_POINT_LIMIT;
 
   return (
     <View
@@ -122,8 +136,8 @@ function TrendLineChart({
           yAxisOffset={yAxisOffset}
           noOfSections={4}
           spacing={spacingValue}
-          initialSpacing={CHART_HORIZONTAL_INSET}
-          endSpacing={CHART_HORIZONTAL_INSET}
+          initialSpacing={LINE_CHART_HORIZONTAL_INSET}
+          endSpacing={LINE_CHART_HORIZONTAL_INSET}
           color={color}
           thickness={2.5}
           curved
@@ -147,14 +161,17 @@ function TrendLineChart({
           yAxisTextStyle={s.chartAxisText}
           xAxisLabelTextStyle={s.chartAxisText}
           yAxisLabelWidth={Y_AXIS_LABEL_WIDTH}
+          dataPointLabelWidth={58}
           formatYLabel={(label) =>
             valueSuffix
               ? Number(label).toFixed(1)
               : String(Math.round(Number(label)))
           }
-          disableScroll={data.length <= 8}
-          showScrollIndicator={false}
-          adjustToWidth={data.length <= 8}
+          disableScroll={fitsInViewport}
+          showScrollIndicator={!fitsInViewport}
+          adjustToWidth={fitsInViewport}
+          scrollToEnd={!fitsInViewport}
+          scrollAnimation={false}
           isAnimated
           animationDuration={650}
           overflowTop={26}
@@ -252,7 +269,6 @@ function CalorieBarChart({
 
 export default function StatsScreen() {
   const { allWeights, setAllWeights } = useAppStore();
-  const [range, setRange] = useState<Range>("7d");
   const [selectedDate, setSelectedDate] = useState(today());
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [dayMeals, setDayMeals] = useState<Meal[]>([]);
@@ -266,14 +282,11 @@ export default function StatsScreen() {
   }, []);
 
   const latestWeights = getLatestWeightsByDate(allWeights);
-  const cutoff =
-    range === "7d" ? 7 : range === "30d" ? 30 : latestWeights.length;
-  const filtered = latestWeights.slice(-cutoff);
 
   useEffect(() => {
-    if (filtered.length === 0) return;
-    const from = filtered[0].date;
-    const to = filtered[filtered.length - 1].date;
+    if (latestWeights.length === 0) return;
+    const from = latestWeights[0].date;
+    const to = latestWeights[latestWeights.length - 1].date;
     getMealsByDateRange(from, to).then((meals) => {
       const map: Record<string, number> = {};
       meals.forEach((m) => {
@@ -281,7 +294,7 @@ export default function StatsScreen() {
       });
       setCalByDate(map);
     });
-  }, [range, latestWeights.length]);
+  }, [latestWeights.length]);
 
   useEffect(() => {
     Promise.all([
@@ -294,11 +307,11 @@ export default function StatsScreen() {
     });
   }, [selectedDate]);
 
-  const weightData = filtered.map((w) => ({
+  const weightData = latestWeights.map((w) => ({
     label: w.date.slice(5),
     value: w.weight,
   }));
-  const calData = filtered.map((w) => ({
+  const calData = latestWeights.map((w) => ({
     label: w.date.slice(5),
     value: calByDate[w.date] ?? 0,
   }));
@@ -338,19 +351,6 @@ export default function StatsScreen() {
   return (
     <ScrollView style={s.container}>
       <Text style={s.title}>体重趋势</Text>
-      <View style={s.rangeRow}>
-        {(["7d", "30d", "all"] as Range[]).map((r) => (
-          <TouchableOpacity
-            key={r}
-            style={[s.chip, range === r && s.chipA]}
-            onPress={() => setRange(r)}
-          >
-            <Text style={range === r ? s.chipTA : s.chipT}>
-              {r === "all" ? "全部" : r}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
       {weightData.length > 0 && (
         <View style={s.chartCard}>
           <View style={s.cardHeader}>
@@ -592,7 +592,6 @@ const s = StyleSheet.create({
     marginBottom: 8,
     color: colors.text,
   },
-  rangeRow: { flexDirection: "row", marginBottom: 8 },
   chartCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.card,
@@ -633,7 +632,7 @@ const s = StyleSheet.create({
     height: 226,
     marginBottom: 8,
     paddingTop: 14,
-    overflow: "visible",
+    overflow: "hidden",
   },
   chartAxisText: {
     fontSize: 10,
@@ -648,18 +647,6 @@ const s = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
   },
-  chip: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: colors.surface,
-    marginRight: spacing.small,
-  },
-  chipA: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipT: { color: colors.textSecondary },
-  chipTA: { color: colors.surface },
   dateField: {
     borderWidth: 1,
     borderColor: colors.border,

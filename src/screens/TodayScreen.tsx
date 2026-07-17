@@ -16,8 +16,10 @@ import { useAppStore } from "../store/useAppStore";
 import { colors, spacing, radius, shadow } from "../styles/theme";
 import { deleteMeal, getMealsByDate } from "../db/mealsRepository";
 import {
+  deleteWeight,
   insertWeight,
   getAllWeights,
+  getPreviousWeightByDate,
   getWeightByDate,
   updateWeight,
 } from "../db/weightsRepository";
@@ -117,15 +119,20 @@ export default function TodayScreen() {
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Meal | null>(null);
   const [deletingMealId, setDeletingMealId] = useState<number | null>(null);
+  const [previousWeight, setPreviousWeight] = useState<number | null>(null);
+  const [weightDeleteVisible, setWeightDeleteVisible] = useState(false);
+  const [deletingWeight, setDeletingWeight] = useState(false);
 
   useEffect(() => {
     async function loadSelectedDate() {
-      const [meals, weight] = await Promise.all([
+      const [meals, weight, previous] = await Promise.all([
         getMealsByDate(selectedDate),
         getWeightByDate(selectedDate),
+        getPreviousWeightByDate(selectedDate),
       ]);
       setTodayMeals(meals);
       setTodayWeight(weight);
+      setPreviousWeight(previous?.weight ?? null);
       setWeightInput("");
       setWeightEditing(false);
     }
@@ -139,14 +146,44 @@ export default function TodayScreen() {
     if (todayWeight?.date === selectedDate)
       await updateWeight(todayWeight.id, val);
     else await insertWeight(selectedDate, val);
-    const [all, weight] = await Promise.all([
+    const [all, weight, previous] = await Promise.all([
       getAllWeights(),
       getWeightByDate(selectedDate),
+      getPreviousWeightByDate(selectedDate),
     ]);
     setAllWeights(all);
     setTodayWeight(weight);
+    setPreviousWeight(previous?.weight ?? null);
     setWeightInput("");
     setWeightEditing(false);
+  }
+
+  function confirmDeleteWeight() {
+    if (!todayWeight) return;
+    setWeightDeleteVisible(true);
+  }
+
+  async function deleteSelectedWeight() {
+    if (!todayWeight || deletingWeight) return;
+    setDeletingWeight(true);
+    setWeightDeleteVisible(false);
+    try {
+      await deleteWeight(todayWeight.id);
+      const [all, weight, previous] = await Promise.all([
+        getAllWeights(),
+        getWeightByDate(selectedDate),
+        getPreviousWeightByDate(selectedDate),
+      ]);
+      setAllWeights(all);
+      setTodayWeight(weight);
+      setPreviousWeight(previous?.weight ?? null);
+      setWeightInput("");
+      setWeightEditing(false);
+    } catch {
+      Alert.alert("删除失败", "请稍后再试");
+    } finally {
+      setDeletingWeight(false);
+    }
   }
 
   function startWeightEdit() {
@@ -228,7 +265,20 @@ export default function TodayScreen() {
     (sum, meal) => sum + (meal.calories ?? 0),
     0,
   );
-  const loggedMealCount = todayMeals.length;
+  const weightChange =
+    todayWeight && previousWeight != null
+      ? todayWeight.weight - previousWeight
+      : null;
+  const weightChangeAbs =
+    weightChange != null ? Math.abs(weightChange).toFixed(1) : null;
+  const weightChangeLabel =
+    weightChange == null
+      ? null
+      : Math.abs(weightChange) < 0.05
+        ? "较上次持平"
+        : weightChange > 0
+          ? `较上次 +${weightChangeAbs} kg`
+          : `较上次 -${weightChangeAbs} kg`;
 
   return (
     <View style={s.wrapper}>
@@ -266,11 +316,6 @@ export default function TodayScreen() {
               <Text style={s.metricLabel}>摄入</Text>
               <Text style={s.metricValue}>{totalCalories} kcal</Text>
             </View>
-            <View style={s.metricDivider} />
-            <View style={s.metricItem}>
-              <Text style={s.metricLabel}>记录</Text>
-              <Text style={s.metricValue}>{loggedMealCount} 餐</Text>
-            </View>
           </View>
         </View>
 
@@ -279,7 +324,9 @@ export default function TodayScreen() {
             <View>
               <Text style={s.sectionTitle}>体重记录</Text>
               <Text style={s.sectionHint}>
-                {todayWeight ? "今日已有记录，可随时修正" : "还没有记录体重"}
+                {todayWeight
+                  ? `${isCurrentDate ? "今日" : "当日"}已有记录，可随时修正`
+                  : "还没有记录体重"}
               </Text>
             </View>
             {!weightEditing && (
@@ -306,39 +353,102 @@ export default function TodayScreen() {
                 value={weightInput}
                 onChangeText={setWeightInput}
               />
-              <TouchableOpacity style={s.btn} onPress={saveWeight}>
-                <Text style={s.btnT}>保存</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={s.secondaryBtn}
-                onPress={() => {
-                  setWeightInput("");
-                  setWeightEditing(false);
-                }}
-              >
-                <Text style={s.secondaryBtnT}>取消</Text>
-              </TouchableOpacity>
+              <View style={s.weightActions}>
+                <TouchableOpacity style={s.btn} onPress={saveWeight}>
+                  <Text style={s.btnT}>保存</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.secondaryBtn}
+                  onPress={() => {
+                    setWeightInput("");
+                    setWeightEditing(false);
+                  }}
+                >
+                  <Text style={s.secondaryBtnT}>取消</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           ) : (
-            <Text style={s.weightValue}>
-              {todayWeight ? `${todayWeight.weight} kg` : "点击右侧按钮记录"}
-            </Text>
+            todayWeight ? (
+              <View style={s.weightResultRow}>
+                <Text style={s.weightValue}>{todayWeight.weight} kg</Text>
+                {weightChangeLabel ? (
+                  <View
+                    style={[
+                      s.weightChangeBadge,
+                      weightChange != null &&
+                        weightChange > 0.05 &&
+                        s.weightChangeUp,
+                      weightChange != null &&
+                        weightChange < -0.05 &&
+                        s.weightChangeDown,
+                    ]}
+                  >
+                    <Ionicons
+                      name={
+                        weightChange != null && weightChange > 0.05
+                          ? "trending-up-outline"
+                          : weightChange != null && weightChange < -0.05
+                            ? "trending-down-outline"
+                            : "remove-outline"
+                      }
+                      size={15}
+                      color={
+                        weightChange != null && weightChange > 0.05
+                          ? colors.danger
+                          : weightChange != null && weightChange < -0.05
+                            ? colors.success
+                            : colors.textMuted
+                      }
+                    />
+                    <Text
+                      style={[
+                        s.weightChangeText,
+                        weightChange != null &&
+                          weightChange > 0.05 &&
+                          s.weightChangeTextUp,
+                        weightChange != null &&
+                          weightChange < -0.05 &&
+                          s.weightChangeTextDown,
+                      ]}
+                    >
+                      {weightChangeLabel}
+                    </Text>
+                  </View>
+                ) : null}
+                <TouchableOpacity
+                  style={s.deleteWeightIconBtn}
+                  onPress={confirmDeleteWeight}
+                  accessibilityRole="button"
+                  accessibilityLabel="删除体重记录"
+                  disabled={deletingWeight}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={18}
+                    color={colors.danger}
+                  />
+                </TouchableOpacity>
+              </View>
+            ) : null
           )}
         </View>
 
         <View style={s.mealsHeader}>
-          <Text style={s.sectionTitle}>今日饮食</Text>
-          {isCurrentDate && (
-            <TouchableOpacity
-              style={s.inlineAddBtn}
-              onPress={openAddMeal}
-              accessibilityRole="button"
-              accessibilityLabel="添加饮食"
-            >
-              <Ionicons name="add" size={18} color={colors.surface} />
-              <Text style={s.inlineAddText}>添加饮食记录</Text>
-            </TouchableOpacity>
-          )}
+          <Text style={s.sectionTitle}>
+            {isCurrentDate ? "今日饮食" : "当日饮食"}
+          </Text>
+          <TouchableOpacity
+            style={s.inlineAddBtn}
+            onPress={openAddMeal}
+            accessibilityRole="button"
+            accessibilityLabel={isCurrentDate ? "添加饮食" : "补记饮食"}
+          >
+            <Ionicons name="add" size={18} color={colors.surface} />
+            <Text style={s.inlineAddText}>
+              {isCurrentDate ? "添加饮食记录" : "补记饮食"}
+            </Text>
+          </TouchableOpacity>
         </View>
         {todayMeals.length === 0 ? (
           <View style={s.emptyState}>
@@ -347,7 +457,7 @@ export default function TodayScreen() {
             <Text style={s.emptyText}>
               {isCurrentDate
                 ? "添加第一餐后，这里会按餐次整理显示。"
-                : "这一天没有留下饮食记录。"}
+                : "可以补记这一天的饮食，记录会保存到所选日期。"}
             </Text>
           </View>
         ) : null}
@@ -402,24 +512,22 @@ export default function TodayScreen() {
                                 color={colors.primary}
                               />
                             </TouchableOpacity>
-                            {isCurrentDate && (
-                              <TouchableOpacity
-                                style={[
-                                  s.actionBtn,
-                                  deletingMealId === m.id && s.actionBtnDisabled,
-                                ]}
-                                onPress={() => confirmDeleteMeal(m)}
-                                accessibilityRole="button"
-                                accessibilityLabel="删除"
-                                disabled={deletingMealId === m.id}
-                              >
-                                <Ionicons
-                                  name="trash-outline"
-                                  size={18}
-                                  color={colors.danger}
-                                />
-                              </TouchableOpacity>
-                            )}
+                            <TouchableOpacity
+                              style={[
+                                s.actionBtn,
+                                deletingMealId === m.id && s.actionBtnDisabled,
+                              ]}
+                              onPress={() => confirmDeleteMeal(m)}
+                              accessibilityRole="button"
+                              accessibilityLabel="删除"
+                              disabled={deletingMealId === m.id}
+                            >
+                              <Ionicons
+                                name="trash-outline"
+                                size={18}
+                                color={colors.danger}
+                              />
+                            </TouchableOpacity>
                           </View>
                         </View>
                       );
@@ -471,6 +579,50 @@ export default function TodayScreen() {
                   onPress={deleteSelectedMeal}
                 >
                   <Text style={s.confirmDeleteText}>删除</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+      {weightDeleteVisible && todayWeight && (
+        <Modal
+          transparent
+          visible={weightDeleteVisible}
+          animationType="fade"
+          onRequestClose={() => setWeightDeleteVisible(false)}
+        >
+          <View style={s.confirmBackdrop}>
+            <View style={s.confirmCard}>
+              <View style={s.confirmIcon}>
+                <Ionicons
+                  name="trash-outline"
+                  size={22}
+                  color={colors.danger}
+                />
+              </View>
+              <Text style={s.confirmTitle}>删除体重记录</Text>
+              <Text style={s.confirmText}>
+                确定删除 {selectedDate} 的 {todayWeight.weight} kg 记录吗？
+              </Text>
+              <View style={s.confirmActions}>
+                <TouchableOpacity
+                  style={s.confirmCancel}
+                  onPress={() => setWeightDeleteVisible(false)}
+                >
+                  <Text style={s.confirmCancelText}>取消</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    s.confirmDelete,
+                    deletingWeight && s.confirmDeleteDisabled,
+                  ]}
+                  onPress={deleteSelectedWeight}
+                  disabled={deletingWeight}
+                >
+                  <Text style={s.confirmDeleteText}>
+                    {deletingWeight ? "删除中..." : "删除"}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -647,16 +799,66 @@ const s = StyleSheet.create({
     backgroundColor: colors.primarySoft,
   },
   weightValue: {
-    marginTop: spacing.medium,
+    flex: 1,
+    minWidth: 92,
     color: colors.text,
     fontSize: 24,
     lineHeight: 31,
     fontWeight: "800",
   },
-  weightEditor: {
+  weightResultRow: {
     marginTop: spacing.medium,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.small,
+  },
+  weightChangeBadge: {
+    minHeight: 34,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.small,
+    backgroundColor: colors.surfaceSoft,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    flexShrink: 1,
+  },
+  weightChangeUp: {
+    backgroundColor: "#fff1f0",
+  },
+  weightChangeDown: {
+    backgroundColor: "#ecfdf3",
+  },
+  weightChangeText: {
+    flexShrink: 1,
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "800",
+  },
+  weightChangeTextUp: {
+    color: colors.danger,
+  },
+  weightChangeTextDown: {
+    color: colors.success,
+  },
+  deleteWeightIconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#fff1f0",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  weightEditor: {
+    marginTop: spacing.medium,
+    gap: spacing.small,
+  },
+  weightActions: {
+    flexDirection: "row",
+    gap: spacing.small,
   },
   input: {
     flex: 1,
@@ -670,23 +872,23 @@ const s = StyleSheet.create({
     fontSize: 15,
   },
   btn: {
+    flex: 1,
     backgroundColor: colors.primary,
     borderRadius: radius.input,
     padding: spacing.small,
-    marginLeft: spacing.small,
     justifyContent: "center",
     alignItems: "center",
-    minWidth: 72,
+    minHeight: 44,
   },
   btnT: { color: colors.surface, fontWeight: "700" },
   secondaryBtn: {
+    flex: 1,
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.input,
     padding: spacing.small,
-    marginLeft: spacing.small,
     justifyContent: "center",
     alignItems: "center",
-    minWidth: 58,
+    minHeight: 44,
   },
   secondaryBtnT: { color: colors.textSecondary, fontWeight: "700" },
   mealsHeader: {
@@ -861,6 +1063,9 @@ const s = StyleSheet.create({
     backgroundColor: colors.danger,
     padding: spacing.medium,
     alignItems: "center",
+  },
+  confirmDeleteDisabled: {
+    opacity: 0.55,
   },
   confirmCancelText: {
     color: colors.textSecondary,

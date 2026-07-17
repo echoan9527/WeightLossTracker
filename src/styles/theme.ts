@@ -16,6 +16,7 @@ export const colors = {
   textMuted: "#667085",
   textSecondary: "#475467",
   danger: "#d92d20",
+  success: "#039855",
   gray: "#94a3b8",
 };
 

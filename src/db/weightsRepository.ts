@@ -17,6 +17,11 @@ export async function updateWeight(id: number, weight: number): Promise<void> {
   );
 }
 
+export async function deleteWeight(id: number): Promise<void> {
+  const db = getDB();
+  await db.runAsync('DELETE FROM weights WHERE id = ?', [id]);
+}
+
 export async function getAllWeights(): Promise<Weight[]> {
   const db = getDB();
   return db.getAllAsync<Weight>('SELECT * FROM weights ORDER BY date ASC');
@@ -26,6 +31,14 @@ export async function getWeightByDate(date: string): Promise<Weight | null> {
   const db = getDB();
   return db.getFirstAsync<Weight>(
     'SELECT * FROM weights WHERE date = ? ORDER BY id DESC LIMIT 1',
+    [date]
+  );
+}
+
+export async function getPreviousWeightByDate(date: string): Promise<Weight | null> {
+  const db = getDB();
+  return db.getFirstAsync<Weight>(
+    'SELECT * FROM weights WHERE date < ? ORDER BY date DESC, id DESC LIMIT 1',
     [date]
   );
 }
