@@ -1,7 +1,7 @@
 import { mockDb } from '../../__mocks__/expo-sqlite';
 jest.mock('expo-sqlite');
 jest.mock('../../src/db/database', () => ({ getDB: () => mockDb }));
-import { insertMeal, getMealsByDate, updateMeal } from '../../src/db/mealsRepository';
+import { insertMeal, getMealsByDate, updateMeal, deleteMeal } from '../../src/db/mealsRepository';
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -38,4 +38,9 @@ test('updateMeal updates existing row and serializes photos', async () => {
   expect(call[0]).toContain('UPDATE meals');
   expect(call[1]).toContain('["file://photo1.jpg"]');
   expect(call[1]).toContain(1);
+});
+
+test('deleteMeal removes row by id', async () => {
+  await deleteMeal(7);
+  expect(mockDb.runAsync).toHaveBeenCalledWith('DELETE FROM meals WHERE id = ?', [7]);
 });

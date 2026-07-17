@@ -5,21 +5,29 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Dimensions,
   Modal,
   Image,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
 import type { DateData } from "react-native-calendars";
+import {
+  BarChart,
+  LineChart,
+  type barDataItem,
+  type lineDataItem,
+} from "react-native-gifted-charts";
 import { useAppStore } from "../store/useAppStore";
 import { getAllWeights, getWeightByDate } from "../db/weightsRepository";
 import { getMealsByDate, getMealsByDateRange } from "../db/mealsRepository";
 import { Meal, Weight } from "../types";
 import { colors, spacing, radius, shadow } from "../styles/theme";
 
-const W = Dimensions.get("window").width - 32;
 type Range = "7d" | "30d" | "all";
 type ChartPoint = { label: string; value: number };
+const CHART_HEIGHT = 154;
+const Y_AXIS_LABEL_WIDTH = 38;
+const CALORIE_Y_AXIS_LABEL_WIDTH = 44;
+const CHART_HORIZONTAL_INSET = 18;
 const MEAL_TYPE_LABELS = {
   breakfast: "早餐",
   lunch: "午餐",
@@ -48,7 +56,18 @@ function getLatestWeightsByDate(weights: Weight[]) {
   );
 }
 
-function MiniLineChart({
+function formatChartValue(value: number, valueSuffix: string) {
+  if (value <= 0) return "";
+  return valueSuffix ? `${value}${valueSuffix}` : String(value);
+}
+
+function getCalorieChartMax(value: number) {
+  if (value <= 0) return 100;
+  if (value <= 1000) return Math.ceil(value / 200) * 200;
+  return Math.ceil(value / 500) * 500;
+}
+
+function TrendLineChart({
   data,
   color,
   valueSuffix,
@@ -57,67 +76,176 @@ function MiniLineChart({
   color: string;
   valueSuffix: string;
 }) {
+  const [plotWidth, setPlotWidth] = useState(0);
   const values = data.map((d) => d.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const range = Math.max(max - min, 1);
-  // available inner width inside the card: container inner (W) minus card paddings
-  const availableInner = Math.max(W - spacing.medium * 2, 0);
-  const chartWidth = Math.max(availableInner - 24, 0);
-  const chartHeight = 126;
-  const points = data.map((d, index) => ({
-    ...d,
-    x:
-      data.length === 1
-        ? chartWidth / 2
-        : (index / (data.length - 1)) * chartWidth,
-    y: chartHeight - ((d.value - min) / range) * chartHeight,
-  }));
+  const valueRange = Math.max(max - min, 1);
+  const yPadding = valueSuffix ? Math.max(valueRange * 0.18, 0.3) : 100;
+  const yAxisOffset = Math.max(0, min - yPadding);
+  const maxValue = Math.max(max - yAxisOffset + yPadding, 1);
+  const chartViewportWidth = Math.max(plotWidth - Y_AXIS_LABEL_WIDTH, 0);
+  const compactSpacing =
+    data.length > 1
+      ? Math.max(
+          (chartViewportWidth - CHART_HORIZONTAL_INSET * 2) / (data.length - 1),
+          1,
+        )
+      : chartViewportWidth / 2;
+  const spacingValue =
+    data.length <= 8 ? compactSpacing : valueSuffix ? 56 : 48;
+  const showEvery = Math.max(1, Math.ceil(data.length / 6));
+  const chartData: lineDataItem[] = data.map((point, index) => {
+    const showLabel = data.length <= 8 || index % showEvery === 0;
+
+    return {
+      value: point.value,
+      label: showLabel ? point.label : "",
+      dataPointText: formatChartValue(point.value, valueSuffix),
+      textShiftX: valueSuffix ? -16 : -12,
+      textShiftY: 12,
+    };
+  });
 
   return (
-    <View style={s.chartBox}>
-      <View style={[s.linePlot, { width: chartWidth }]}>
-        {points.slice(1).map((point, index) => {
-          const prev = points[index];
-          const dx = point.x - prev.x;
-          const dy = point.y - prev.y;
-          const length = Math.sqrt(dx * dx + dy * dy);
-          const angle = `${Math.atan2(dy, dx)}rad`;
+    <View
+      style={s.chartBox}
+      onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}
+    >
+      {plotWidth > 0 ? (
+        <LineChart
+          data={chartData}
+          height={CHART_HEIGHT}
+          width={chartViewportWidth}
+          parentWidth={plotWidth}
+          maxValue={maxValue}
+          yAxisOffset={yAxisOffset}
+          noOfSections={4}
+          spacing={spacingValue}
+          initialSpacing={CHART_HORIZONTAL_INSET}
+          endSpacing={CHART_HORIZONTAL_INSET}
+          color={color}
+          thickness={2.5}
+          curved
+          curvature={0.16}
+          areaChart
+          startFillColor={color}
+          endFillColor={color}
+          startOpacity={0.08}
+          endOpacity={0.01}
+          dataPointsColor={color}
+          dataPointsRadius={4}
+          dataPointsHeight={8}
+          dataPointsWidth={8}
+          textColor={colors.textMuted}
+          textFontSize={10}
+          xAxisColor={colors.border}
+          yAxisColor="transparent"
+          rulesColor={colors.border}
+          rulesType="solid"
+          rulesThickness={1}
+          yAxisTextStyle={s.chartAxisText}
+          xAxisLabelTextStyle={s.chartAxisText}
+          yAxisLabelWidth={Y_AXIS_LABEL_WIDTH}
+          formatYLabel={(label) =>
+            valueSuffix
+              ? Number(label).toFixed(1)
+              : String(Math.round(Number(label)))
+          }
+          disableScroll={data.length <= 8}
+          showScrollIndicator={false}
+          adjustToWidth={data.length <= 8}
+          isAnimated
+          animationDuration={650}
+          overflowTop={26}
+        />
+      ) : null}
+    </View>
+  );
+}
 
-          return (
-            <View
-              key={`line-${prev.label}-${point.label}`}
-              style={[
-                s.lineSegment,
-                {
-                  width: length,
-                  left: prev.x + dx / 2 - length / 2,
-                  top: prev.y + dy / 2,
-                  backgroundColor: color,
-                  transform: [{ rotate: angle }],
-                },
-              ]}
-            />
-          );
-        })}
-        {points.map((point, index) => {
-          const showLabel =
-            data.length <= 8 || index % Math.ceil(data.length / 6) === 0;
+function CalorieBarChart({
+  data,
+  color,
+}: {
+  data: ChartPoint[];
+  color: string;
+}) {
+  const [plotWidth, setPlotWidth] = useState(0);
+  const max = Math.max(...data.map((d) => d.value), 0);
+  const maxValue = getCalorieChartMax(max);
+  const chartViewportWidth = Math.max(plotWidth - CALORIE_Y_AXIS_LABEL_WIDTH, 0);
+  const compactBarWidth = Math.min(
+    28,
+    Math.max(16, (chartViewportWidth - CHART_HORIZONTAL_INSET * 2) / 12),
+  );
+  const barWidth = data.length <= 8 ? compactBarWidth : 18;
+  const compactSpacing =
+    data.length > 1
+      ? Math.max(
+          (chartViewportWidth -
+            CHART_HORIZONTAL_INSET * 2 -
+            barWidth * data.length) /
+            (data.length - 1),
+          8,
+        )
+      : 0;
+  const spacingValue = data.length <= 8 ? compactSpacing : 14;
+  const showEvery = Math.max(1, Math.ceil(data.length / 6));
+  const chartData: barDataItem[] = data.map((point, index) => {
+    const showLabel = data.length <= 8 || index % showEvery === 0;
+    const showTopLabel = data.length <= 8 && point.value > 0;
 
-          return (
-            <View
-              key={`${point.label}-${index}`}
-              style={[s.pointWrap, { left: point.x - 30, top: point.y - 24 }]}
-            >
-              <Text style={s.pointValue}>
-                {point.value > 0 ? `${point.value}${valueSuffix}` : ""}
-              </Text>
-              <View style={[s.point, { backgroundColor: color }]} />
-              <Text style={s.pointLabel}>{showLabel ? point.label : ""}</Text>
-            </View>
-          );
-        })}
-      </View>
+    return {
+      value: point.value,
+      label: showLabel ? point.label : "",
+      frontColor: point.value > 0 ? color : colors.border,
+      gradientColor: point.value > 0 ? "#f7b267" : colors.border,
+      topLabelComponent: showTopLabel
+        ? () => <Text style={s.barTopLabel}>{point.value}</Text>
+        : undefined,
+    };
+  });
+
+  return (
+    <View
+      style={s.chartBox}
+      onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}
+    >
+      {plotWidth > 0 ? (
+        <BarChart
+          data={chartData}
+          height={CHART_HEIGHT}
+          width={chartViewportWidth}
+          parentWidth={plotWidth}
+          maxValue={maxValue}
+          noOfSections={4}
+          spacing={spacingValue}
+          initialSpacing={CHART_HORIZONTAL_INSET}
+          endSpacing={CHART_HORIZONTAL_INSET}
+          barWidth={barWidth}
+          roundedTop
+          roundedBottom
+          showGradient
+          xAxisColor={colors.border}
+          yAxisColor="transparent"
+          rulesColor={colors.border}
+          rulesType="solid"
+          rulesThickness={1}
+          yAxisTextStyle={s.chartAxisText}
+          xAxisLabelTextStyle={s.chartAxisText}
+          yAxisLabelWidth={CALORIE_Y_AXIS_LABEL_WIDTH}
+          formatYLabel={(label) => String(Math.round(Number(label)))}
+          disableScroll={data.length <= 8}
+          showScrollIndicator={false}
+          adjustToWidth={data.length <= 8}
+          isAnimated
+          animationDuration={650}
+          overflowTop={24}
+          labelsDistanceFromXaxis={4}
+          topLabelContainerStyle={s.barTopLabelContainer}
+        />
+      ) : null}
     </View>
   );
 }
@@ -255,7 +383,7 @@ export default function StatsScreen() {
               </Text>
             </View>
           </View>
-          <MiniLineChart
+          <TrendLineChart
             data={weightData}
             color={colors.primary}
             valueSuffix="kg"
@@ -289,7 +417,7 @@ export default function StatsScreen() {
               <Text style={s.summaryValue}>{calData.length}</Text>
             </View>
           </View>
-          <MiniLineChart data={calData} color="#e67e22" valueSuffix="" />
+          <CalorieBarChart data={calData} color="#e67e22" />
         </View>
       )}
       <Text style={s.title}>饮食明细</Text>
@@ -502,30 +630,23 @@ const s = StyleSheet.create({
   },
   chartBox: {
     width: "100%",
-    height: 190,
-    marginBottom: 16,
-    paddingHorizontal: 12,
-    paddingTop: 22,
-    overflow: "hidden",
+    height: 226,
+    marginBottom: 8,
+    paddingTop: 14,
+    overflow: "visible",
   },
-  linePlot: { height: 150, position: "relative" },
-  lineSegment: {
-    position: "absolute",
-    height: 3,
-    borderRadius: 2,
-  },
-  pointWrap: {
-    position: "absolute",
-    width: 60,
-    alignItems: "center",
-  },
-  pointValue: { height: 18, fontSize: 10, color: colors.textMuted },
-  point: { width: 12, height: 12, borderRadius: 6 },
-  pointLabel: {
-    height: 20,
-    marginTop: 4,
+  chartAxisText: {
     fontSize: 10,
     color: colors.textMuted,
+    fontWeight: "600",
+  },
+  barTopLabelContainer: {
+    marginBottom: 4,
+  },
+  barTopLabel: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
   },
   chip: {
     borderWidth: 1,

@@ -23,13 +23,23 @@ import {
 } from "../db/weightsRepository";
 import AddMealModal from "./AddMealModal";
 import { Meal } from "../types";
+import { deleteMealPhotos } from "../utils/mealPhotos";
 
 const MEAL_TYPE_LABELS = {
-  breakfast: "早餐 Breakfast",
-  lunch: "午餐 Lunch",
-  dinner: "晚餐 Dinner",
-  snack: "加餐 Snack",
+  breakfast: "早餐",
+  lunch: "午餐",
+  dinner: "晚餐",
+  snack: "加餐",
 } as const;
+const MEAL_TYPE_ICONS: Record<
+  keyof typeof MEAL_TYPE_LABELS,
+  keyof typeof Ionicons.glyphMap
+> = {
+  breakfast: "cafe-outline",
+  lunch: "restaurant-outline",
+  dinner: "moon-outline",
+  snack: "nutrition-outline",
+};
 
 LocaleConfig.locales.zh = {
   monthNames: [
@@ -83,6 +93,14 @@ function formatDateKey(date: Date) {
 
 const today = () => formatDateKey(new Date());
 
+function formatDisplayDate(dateKey: string) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+  return `${month}月${day}日 ${weekdays[date.getDay()]}`;
+}
+
 export default function TodayScreen() {
   const {
     todayMeals,
@@ -94,8 +112,11 @@ export default function TodayScreen() {
   const [selectedDate, setSelectedDate] = useState(today());
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [weightInput, setWeightInput] = useState("");
+  const [weightEditing, setWeightEditing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Meal | null>(null);
+  const [deletingMealId, setDeletingMealId] = useState<number | null>(null);
 
   useEffect(() => {
     async function loadSelectedDate() {
@@ -106,6 +127,7 @@ export default function TodayScreen() {
       setTodayMeals(meals);
       setTodayWeight(weight);
       setWeightInput("");
+      setWeightEditing(false);
     }
 
     loadSelectedDate();
@@ -124,6 +146,12 @@ export default function TodayScreen() {
     setAllWeights(all);
     setTodayWeight(weight);
     setWeightInput("");
+    setWeightEditing(false);
+  }
+
+  function startWeightEdit() {
+    setWeightInput(todayWeight ? String(todayWeight.weight) : "");
+    setWeightEditing(true);
   }
 
   function selectDate(day: DateData) {
@@ -157,18 +185,27 @@ export default function TodayScreen() {
   }
 
   function confirmDeleteMeal(meal: Meal) {
-    Alert.alert("删除饮食记录", `确定删除“${meal.description}”吗？`, [
-      { text: "取消", style: "cancel" },
-      {
-        text: "删除",
-        style: "destructive",
-        onPress: async () => {
-          await deleteMeal(meal.id);
-          const meals = await getMealsByDate(selectedDate);
-          setTodayMeals(meals);
-        },
-      },
-    ]);
+    setDeleteTarget(meal);
+  }
+
+  async function deleteSelectedMeal() {
+    if (!deleteTarget || deletingMealId) return;
+    const meal = deleteTarget;
+    setDeletingMealId(meal.id);
+    setDeleteTarget(null);
+    setTodayMeals(todayMeals.filter((item) => item.id !== meal.id));
+    try {
+      await deleteMeal(meal.id);
+      await deleteMealPhotos(meal.photos);
+      const meals = await getMealsByDate(selectedDate);
+      setTodayMeals(meals);
+    } catch {
+      const meals = await getMealsByDate(selectedDate);
+      setTodayMeals(meals);
+      Alert.alert("删除失败", "请稍后再试");
+    } finally {
+      setDeletingMealId(null);
+    }
   }
 
   const currentDate = today();
@@ -187,97 +224,214 @@ export default function TodayScreen() {
     },
   };
   const groups = ["breakfast", "lunch", "dinner", "snack"] as const;
+  const totalCalories = todayMeals.reduce(
+    (sum, meal) => sum + (meal.calories ?? 0),
+    0,
+  );
+  const loggedMealCount = todayMeals.length;
 
   return (
-    <ScrollView style={s.container} contentContainerStyle={s.content}>
-      <TouchableOpacity
-        accessibilityRole="button"
-        style={s.dateField}
-        onPress={() => setCalendarVisible(true)}
-      >
-        <View style={s.dateContent}>
-          <Text style={s.date}>{selectedDate}</Text>
+    <View style={s.wrapper}>
+      <ScrollView style={s.container} contentContainerStyle={s.content}>
+        <View style={s.overviewCard}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            style={s.dateField}
+            onPress={() => setCalendarVisible(true)}
+          >
+            <View>
+              <Text style={s.dateKicker}>
+                {isCurrentDate ? "今天" : "记录日"}
+              </Text>
+              <Text style={s.date}>{formatDisplayDate(selectedDate)}</Text>
+              <Text style={s.dateSub}>{selectedDate}</Text>
+            </View>
+            <View style={s.dateAction}>
+              <Ionicons
+                name="calendar-outline"
+                size={22}
+                color={colors.primary}
+              />
+            </View>
+          </TouchableOpacity>
+          <View style={s.metricsRow}>
+            <View style={s.metricItem}>
+              <Text style={s.metricLabel}>体重</Text>
+              <Text style={s.metricValue}>
+                {todayWeight ? `${todayWeight.weight} kg` : "--"}
+              </Text>
+            </View>
+            <View style={s.metricDivider} />
+            <View style={s.metricItem}>
+              <Text style={s.metricLabel}>摄入</Text>
+              <Text style={s.metricValue}>{totalCalories} kcal</Text>
+            </View>
+            <View style={s.metricDivider} />
+            <View style={s.metricItem}>
+              <Text style={s.metricLabel}>记录</Text>
+              <Text style={s.metricValue}>{loggedMealCount} 餐</Text>
+            </View>
+          </View>
         </View>
-        <View style={s.dateAction}>
-          <Text style={s.dateChevron}>›</Text>
-        </View>
-      </TouchableOpacity>
-      <View style={s.row}>
-        <TextInput
-          style={s.input}
-          placeholder="体重 (kg)"
-          keyboardType="numeric"
-          value={weightInput}
-          onChangeText={setWeightInput}
-        />
-        <TouchableOpacity style={s.btn} onPress={saveWeight}>
-          <Text style={s.btnT}>保存</Text>
-        </TouchableOpacity>
-      </View>
-      {todayWeight && (
-        <Text style={s.current}>
-          {isCurrentDate ? "当前" : "记录"}：{todayWeight.weight} kg
-        </Text>
-      )}
-      {groups.map((g) => {
-        const items = todayMeals.filter((m) => m.meal_type === g);
-        return (
-          <View key={g}>
-            <Text style={s.group}>{MEAL_TYPE_LABELS[g]}</Text>
-            {items.length > 0 ? (
-              items.map((m) => {
-                const meta = formatMealMeta(m);
-                return (
-                  <View key={m.id} style={s.mealItem}>
-                    <TouchableOpacity
-                      style={s.mealMain}
-                      onPress={() => openEditMeal(m)}
-                    >
-                      <Text style={s.item}>{m.description}</Text>
-                      {meta ? <Text style={s.mealMeta}>{meta}</Text> : null}
-                    </TouchableOpacity>
-                    <View style={s.mealActions}>
-                      <TouchableOpacity
-                        style={s.actionBtn}
-                        onPress={() => openEditMeal(m)}
-                        accessibilityRole="button"
-                        accessibilityLabel="编辑"
-                      >
-                        <Ionicons
-                          name="create-outline"
-                          size={20}
-                          color="#2e86de"
-                        />
-                      </TouchableOpacity>
-                      {isCurrentDate && (
-                        <TouchableOpacity
-                          style={s.actionBtn}
-                          onPress={() => confirmDeleteMeal(m)}
-                          accessibilityRole="button"
-                          accessibilityLabel="删除"
-                        >
-                          <Ionicons
-                            name="trash-outline"
-                            size={20}
-                            color="#d92d20"
-                          />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </View>
-                );
-              })
-            ) : (
-              <Text style={s.empty}>无</Text>
+
+        <View style={s.weightCard}>
+          <View style={s.sectionHeader}>
+            <View>
+              <Text style={s.sectionTitle}>体重记录</Text>
+              <Text style={s.sectionHint}>
+                {todayWeight ? "今日已有记录，可随时修正" : "还没有记录体重"}
+              </Text>
+            </View>
+            {!weightEditing && (
+              <TouchableOpacity
+                style={s.iconAction}
+                onPress={startWeightEdit}
+                accessibilityRole="button"
+                accessibilityLabel={todayWeight ? "编辑体重" : "记录体重"}
+              >
+                <Ionicons
+                  name={todayWeight ? "create-outline" : "add-outline"}
+                  size={20}
+                  color={colors.primary}
+                />
+              </TouchableOpacity>
             )}
           </View>
-        );
-      })}
-      {isCurrentDate && (
-        <TouchableOpacity style={s.addBtn} onPress={openAddMeal}>
-          <Text style={s.addT}>+ 添加饮食</Text>
-        </TouchableOpacity>
-      )}
+          {weightEditing ? (
+            <View style={s.weightEditor}>
+              <TextInput
+                style={s.input}
+                placeholder="体重 (kg)"
+                keyboardType="numeric"
+                value={weightInput}
+                onChangeText={setWeightInput}
+              />
+              <TouchableOpacity style={s.btn} onPress={saveWeight}>
+                <Text style={s.btnT}>保存</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.secondaryBtn}
+                onPress={() => {
+                  setWeightInput("");
+                  setWeightEditing(false);
+                }}
+              >
+                <Text style={s.secondaryBtnT}>取消</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={s.weightValue}>
+              {todayWeight ? `${todayWeight.weight} kg` : "点击右侧按钮记录"}
+            </Text>
+          )}
+        </View>
+
+        <View style={s.mealsHeader}>
+          <Text style={s.sectionTitle}>今日饮食</Text>
+          {isCurrentDate && (
+            <TouchableOpacity
+              style={s.inlineAddBtn}
+              onPress={openAddMeal}
+              accessibilityRole="button"
+              accessibilityLabel="添加饮食"
+            >
+              <Ionicons name="add" size={18} color={colors.surface} />
+              <Text style={s.inlineAddText}>添加饮食记录</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {todayMeals.length === 0 ? (
+          <View style={s.emptyState}>
+            <Ionicons name="restaurant-outline" size={26} color={colors.gray} />
+            <Text style={s.emptyTitle}>还没有饮食记录</Text>
+            <Text style={s.emptyText}>
+              {isCurrentDate
+                ? "添加第一餐后，这里会按餐次整理显示。"
+                : "这一天没有留下饮食记录。"}
+            </Text>
+          </View>
+        ) : null}
+        {todayMeals.length > 0
+          ? groups.map((g) => {
+              const items = todayMeals.filter((m) => m.meal_type === g);
+              return (
+                <View key={g} style={s.mealSection}>
+                  <View style={s.mealSectionHeader}>
+                    <View style={s.mealTitleWrap}>
+                      <View style={s.mealIcon}>
+                        <Ionicons
+                          name={MEAL_TYPE_ICONS[g]}
+                          size={17}
+                          color={colors.primary}
+                        />
+                      </View>
+                      <Text style={s.group}>{MEAL_TYPE_LABELS[g]}</Text>
+                    </View>
+                    <Text style={s.mealCount}>{items.length || "未记录"}</Text>
+                  </View>
+                  {items.length > 0 ? (
+                    items.map((m, index) => {
+                      const meta = formatMealMeta(m);
+                      return (
+                        <View
+                          key={m.id}
+                          style={[
+                            s.mealItem,
+                            index === items.length - 1 && s.mealItemLast,
+                          ]}
+                        >
+                          <TouchableOpacity
+                            style={s.mealMain}
+                            onPress={() => openEditMeal(m)}
+                          >
+                            <Text style={s.item}>{m.description}</Text>
+                            {meta ? (
+                              <Text style={s.mealMeta}>{meta}</Text>
+                            ) : null}
+                          </TouchableOpacity>
+                          <View style={s.mealActions}>
+                            <TouchableOpacity
+                              style={s.actionBtn}
+                              onPress={() => openEditMeal(m)}
+                              accessibilityRole="button"
+                              accessibilityLabel="编辑"
+                            >
+                              <Ionicons
+                                name="create-outline"
+                                size={18}
+                                color={colors.primary}
+                              />
+                            </TouchableOpacity>
+                            {isCurrentDate && (
+                              <TouchableOpacity
+                                style={[
+                                  s.actionBtn,
+                                  deletingMealId === m.id && s.actionBtnDisabled,
+                                ]}
+                                onPress={() => confirmDeleteMeal(m)}
+                                accessibilityRole="button"
+                                accessibilityLabel="删除"
+                                disabled={deletingMealId === m.id}
+                              >
+                                <Ionicons
+                                  name="trash-outline"
+                                  size={18}
+                                  color={colors.danger}
+                                />
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <Text style={s.empty}>尚未记录</Text>
+                  )}
+                </View>
+              );
+            })
+          : null}
+      </ScrollView>
       <AddMealModal
         visible={showModal}
         date={selectedDate}
@@ -285,6 +439,44 @@ export default function TodayScreen() {
         onClose={closeMealModal}
         onSaved={closeMealModal}
       />
+      {deleteTarget && (
+        <Modal
+          transparent
+          visible={Boolean(deleteTarget)}
+          animationType="fade"
+          onRequestClose={() => setDeleteTarget(null)}
+        >
+          <View style={s.confirmBackdrop}>
+            <View style={s.confirmCard}>
+              <View style={s.confirmIcon}>
+                <Ionicons
+                  name="trash-outline"
+                  size={22}
+                  color={colors.danger}
+                />
+              </View>
+              <Text style={s.confirmTitle}>删除饮食记录</Text>
+              <Text style={s.confirmText}>
+                确定删除“{deleteTarget.description}”吗？
+              </Text>
+              <View style={s.confirmActions}>
+                <TouchableOpacity
+                  style={s.confirmCancel}
+                  onPress={() => setDeleteTarget(null)}
+                >
+                  <Text style={s.confirmCancelText}>取消</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.confirmDelete}
+                  onPress={deleteSelectedMeal}
+                >
+                  <Text style={s.confirmDeleteText}>删除</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
       {calendarVisible && (
         <Modal
           transparent
@@ -346,61 +538,136 @@ export default function TodayScreen() {
           </View>
         </Modal>
       )}
-    </ScrollView>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
+  wrapper: { flex: 1, backgroundColor: colors.background },
   container: {
     flex: 1,
     backgroundColor: colors.background,
     padding: spacing.page,
   },
   content: { paddingBottom: spacing.large },
-  dateField: {
-    minHeight: 74,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.card,
-    paddingHorizontal: spacing.medium,
-    paddingVertical: 0,
-    marginBottom: spacing.medium,
+  overviewCard: {
     backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    padding: spacing.medium,
+    marginBottom: spacing.medium,
+    ...shadow,
+  },
+  dateField: {
+    minHeight: 68,
+    marginBottom: spacing.medium,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  dateContent: { height: 44, justifyContent: "center" },
-  date: {
-    fontSize: 22,
-    lineHeight: 32,
-    fontWeight: "bold",
-    color: colors.text,
-    includeFontPadding: false,
+  dateKicker: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "800",
+    marginBottom: 4,
   },
+  date: {
+    fontSize: 24,
+    lineHeight: 31,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  dateSub: { color: colors.textMuted, fontSize: 13, marginTop: 3 },
   dateAction: {
-    width: 40,
-    height: 44,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: colors.primarySoft,
   },
-  dateChevron: {
-    color: colors.primary,
-    fontSize: 30,
-    lineHeight: 30,
+  metricsRow: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.medium,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  metricItem: { flex: 1 },
+  metricLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
     fontWeight: "700",
-    includeFontPadding: false,
+    marginBottom: 6,
     textAlign: "center",
   },
-  row: { flexDirection: "row", marginBottom: spacing.small },
+  metricValue: {
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  metricDivider: {
+    width: 1,
+    height: 34,
+    backgroundColor: colors.border,
+  },
+  weightCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    padding: spacing.medium,
+    marginBottom: spacing.large,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: "800",
+  },
+  sectionHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 2,
+    fontWeight: "600",
+  },
+  iconAction: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.input,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primarySoft,
+  },
+  weightValue: {
+    marginTop: spacing.medium,
+    color: colors.text,
+    fontSize: 24,
+    lineHeight: 31,
+    fontWeight: "800",
+  },
+  weightEditor: {
+    marginTop: spacing.medium,
+    flexDirection: "row",
+    alignItems: "center",
+  },
   input: {
     flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.input,
-    padding: spacing.small,
-    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.small,
+    paddingVertical: 11,
+    backgroundColor: colors.surfaceSoft,
     color: colors.text,
+    fontSize: 15,
   },
   btn: {
     backgroundColor: colors.primary,
@@ -409,31 +676,91 @@ const s = StyleSheet.create({
     marginLeft: spacing.small,
     justifyContent: "center",
     alignItems: "center",
-    minWidth: 92,
+    minWidth: 72,
   },
   btnT: { color: colors.surface, fontWeight: "700" },
-  current: { marginBottom: spacing.small, color: colors.textMuted },
-  group: {
+  secondaryBtn: {
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: radius.input,
+    padding: spacing.small,
+    marginLeft: spacing.small,
+    justifyContent: "center",
+    alignItems: "center",
+    minWidth: 58,
+  },
+  secondaryBtnT: { color: colors.textSecondary, fontWeight: "700" },
+  mealsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.small,
+  },
+  inlineAddBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  inlineAddText: {
+    marginLeft: 4,
+    color: colors.surface,
+    fontSize: 13,
     fontWeight: "800",
-    marginTop: spacing.section,
-    marginBottom: spacing.xsmall,
-    color: colors.textSecondary,
+  },
+  mealSection: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.medium,
+    paddingTop: spacing.medium,
+    paddingBottom: spacing.small,
+    marginBottom: spacing.medium,
+  },
+  mealSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingBottom: spacing.small,
+  },
+  mealTitleWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  mealIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primarySoft,
+    marginRight: spacing.small,
+  },
+  group: {
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  mealCount: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
   },
   mealItem: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.card,
-    backgroundColor: colors.surface,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginTop: spacing.small,
-    ...shadow,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingVertical: 13,
   },
+  mealItemLast: { paddingBottom: 4 },
   mealMain: { flex: 1, paddingRight: 12 },
-  item: { color: colors.text, fontSize: 16, fontWeight: "600" },
+  item: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: "700" },
   mealMeta: { color: colors.textMuted, marginTop: 4, fontSize: 13 },
   mealActions: {
     flexDirection: "row",
@@ -441,56 +768,107 @@ const s = StyleSheet.create({
     gap: spacing.small,
   },
   actionBtn: {
-    minWidth: 44,
-    minHeight: 44,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: radius.input,
-    padding: 8,
+    borderRadius: 18,
     backgroundColor: colors.surfaceSoft,
   },
-  actionDelete: { color: colors.danger, fontWeight: "700" },
-  empty: {
-    paddingLeft: spacing.small,
-    paddingVertical: 10,
-    color: colors.textMuted,
+  actionBtnDisabled: {
+    opacity: 0.45,
   },
-  wrapper: { flex: 1, backgroundColor: colors.background },
-  addBtn: {
-    marginTop: spacing.large,
-    backgroundColor: colors.primary,
+  empty: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingVertical: 14,
+    color: colors.textMuted,
+    fontWeight: "600",
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.large,
+    marginBottom: spacing.medium,
+  },
+  emptyTitle: {
+    marginTop: spacing.small,
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  emptyText: {
+    marginTop: 4,
+    color: colors.textMuted,
+    fontSize: 13,
+    textAlign: "center",
+  },
+  confirmBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.38)",
+    justifyContent: "center",
+    padding: spacing.page,
+  },
+  confirmCard: {
+    backgroundColor: colors.surface,
     borderRadius: radius.card,
     padding: spacing.large,
     alignItems: "center",
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 18,
-    elevation: 5,
+    ...shadow,
   },
-  addT: { color: colors.surface, fontSize: 16, fontWeight: "700" },
-  fab: {
-    position: "absolute",
-    right: spacing.page,
-    bottom: spacing.page,
-    flexDirection: "row",
+  confirmIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#fff1f0",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: spacing.small,
-    paddingHorizontal: spacing.large,
-    borderRadius: 999,
-    backgroundColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    elevation: 6,
+    marginBottom: spacing.medium,
   },
-  fabText: {
-    marginLeft: spacing.xsmall,
+  confirmTitle: {
+    color: colors.text,
+    fontSize: 18,
+    lineHeight: 25,
+    fontWeight: "800",
+    marginBottom: spacing.xsmall,
+  },
+  confirmText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+  confirmActions: {
+    flexDirection: "row",
+    gap: spacing.small,
+    marginTop: spacing.large,
+    width: "100%",
+  },
+  confirmCancel: {
+    flex: 1,
+    borderRadius: radius.input,
+    backgroundColor: colors.surfaceSoft,
+    padding: spacing.medium,
+    alignItems: "center",
+  },
+  confirmDelete: {
+    flex: 1,
+    borderRadius: radius.input,
+    backgroundColor: colors.danger,
+    padding: spacing.medium,
+    alignItems: "center",
+  },
+  confirmCancelText: {
+    color: colors.textSecondary,
+    fontWeight: "800",
+  },
+  confirmDeleteText: {
     color: colors.surface,
-    fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "800",
   },
   modalBackdrop: {
     flex: 1,
