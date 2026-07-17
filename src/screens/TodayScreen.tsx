@@ -11,7 +11,9 @@ import {
 } from "react-native";
 import { Calendar, LocaleConfig } from "react-native-calendars";
 import type { DateData } from "react-native-calendars";
+import { Ionicons } from "@expo/vector-icons";
 import { useAppStore } from "../store/useAppStore";
+import { colors, spacing, radius, shadow } from "../styles/theme";
 import { deleteMeal, getMealsByDate } from "../db/mealsRepository";
 import {
   insertWeight,
@@ -112,7 +114,8 @@ export default function TodayScreen() {
   async function saveWeight() {
     const val = parseFloat(weightInput);
     if (isNaN(val)) return Alert.alert("请输入有效体重");
-    if (todayWeight?.date === selectedDate) await updateWeight(todayWeight.id, val);
+    if (todayWeight?.date === selectedDate)
+      await updateWeight(todayWeight.id, val);
     else await insertWeight(selectedDate, val);
     const [all, weight] = await Promise.all([
       getAllWeights(),
@@ -150,7 +153,7 @@ export default function TodayScreen() {
       meal.carbs != null ? `碳水 ${meal.carbs}g` : null,
       meal.fat != null ? `脂肪 ${meal.fat}g` : null,
     ].filter(Boolean);
-    return parts.join(' · ');
+    return parts.join(" · ");
   }
 
   function confirmDeleteMeal(meal: Meal) {
@@ -213,8 +216,7 @@ export default function TodayScreen() {
       </View>
       {todayWeight && (
         <Text style={s.current}>
-          {isCurrentDate ? "当前" : "记录"}：{todayWeight.weight}{" "}
-          kg
+          {isCurrentDate ? "当前" : "记录"}：{todayWeight.weight} kg
         </Text>
       )}
       {groups.map((g) => {
@@ -238,15 +240,27 @@ export default function TodayScreen() {
                       <TouchableOpacity
                         style={s.actionBtn}
                         onPress={() => openEditMeal(m)}
+                        accessibilityRole="button"
+                        accessibilityLabel="编辑"
                       >
-                        <Text style={s.actionEdit}>编辑</Text>
+                        <Ionicons
+                          name="create-outline"
+                          size={20}
+                          color="#2e86de"
+                        />
                       </TouchableOpacity>
                       {isCurrentDate && (
                         <TouchableOpacity
                           style={s.actionBtn}
                           onPress={() => confirmDeleteMeal(m)}
+                          accessibilityRole="button"
+                          accessibilityLabel="删除"
                         >
-                          <Text style={s.actionDelete}>删除</Text>
+                          <Ionicons
+                            name="trash-outline"
+                            size={20}
+                            color="#d92d20"
+                          />
                         </TouchableOpacity>
                       )}
                     </View>
@@ -337,33 +351,31 @@ export default function TodayScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  content: { paddingBottom: 24 },
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+    padding: spacing.page,
+  },
+  content: { paddingBottom: spacing.large },
   dateField: {
     minHeight: 74,
     borderWidth: 1,
-    borderColor: "#b9c5d3",
-    borderRadius: 8,
-    paddingHorizontal: 14,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    paddingHorizontal: spacing.medium,
     paddingVertical: 0,
-    marginBottom: 12,
-    backgroundColor: "#fff",
+    marginBottom: spacing.medium,
+    backgroundColor: colors.surface,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   dateContent: { height: 44, justifyContent: "center" },
-  dateLabel: {
-    color: "#667085",
-    fontSize: 13,
-    fontWeight: "600",
-    marginBottom: 4,
-  },
   date: {
     fontSize: 22,
     lineHeight: 32,
     fontWeight: "bold",
-    color: "#111827",
+    color: colors.text,
     includeFontPadding: false,
   },
   dateAction: {
@@ -372,112 +384,156 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dateActionText: { color: "#2e86de", fontWeight: "700" },
   dateChevron: {
-    color: "#2e86de",
-    fontSize: 34,
-    lineHeight: 34,
+    color: colors.primary,
+    fontSize: 30,
+    lineHeight: 30,
     fontWeight: "700",
     includeFontPadding: false,
     textAlign: "center",
   },
-  row: { flexDirection: "row", marginBottom: 8 },
+  row: { flexDirection: "row", marginBottom: spacing.small },
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 8,
+    borderColor: colors.border,
+    borderRadius: radius.input,
+    padding: spacing.small,
+    backgroundColor: colors.surface,
+    color: colors.text,
   },
   btn: {
-    backgroundColor: "#2e86de",
-    borderRadius: 6,
-    padding: 8,
-    marginLeft: 8,
+    backgroundColor: colors.primary,
+    borderRadius: radius.input,
+    padding: spacing.small,
+    marginLeft: spacing.small,
     justifyContent: "center",
+    alignItems: "center",
+    minWidth: 92,
   },
-  btnT: { color: "#fff" },
-  current: { marginBottom: 8, color: "#555" },
-  group: { fontWeight: "bold", marginTop: 12, textTransform: "capitalize" },
+  btnT: { color: colors.surface, fontWeight: "700" },
+  current: { marginBottom: spacing.small, color: colors.textMuted },
+  group: {
+    fontWeight: "800",
+    marginTop: spacing.section,
+    marginBottom: spacing.xsmall,
+    color: colors.textSecondary,
+  },
   mealItem: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 8,
-    backgroundColor: "#fff",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginTop: 8,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: spacing.small,
+    ...shadow,
   },
   mealMain: { flex: 1, paddingRight: 12 },
-  item: { color: "#333", fontSize: 16, fontWeight: "600" },
-  mealMeta: { color: "#667085", marginTop: 4, fontSize: 13 },
+  item: { color: colors.text, fontSize: 16, fontWeight: "600" },
+  mealMeta: { color: colors.textMuted, marginTop: 4, fontSize: 13 },
   mealActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: spacing.small,
   },
   actionBtn: {
     minWidth: 44,
-    minHeight: 34,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: radius.input,
+    padding: 8,
+    backgroundColor: colors.surfaceSoft,
   },
-  actionEdit: { color: "#2e86de", fontWeight: "700" },
-  actionDelete: { color: "#d92d20", fontWeight: "700" },
-  empty: { paddingLeft: 8, paddingVertical: 2, color: "#666" },
+  actionDelete: { color: colors.danger, fontWeight: "700" },
+  empty: {
+    paddingLeft: spacing.small,
+    paddingVertical: 10,
+    color: colors.textMuted,
+  },
+  wrapper: { flex: 1, backgroundColor: colors.background },
   addBtn: {
-    marginTop: 20,
-    backgroundColor: "#2e86de",
-    borderRadius: 8,
-    padding: 14,
+    marginTop: spacing.large,
+    backgroundColor: colors.primary,
+    borderRadius: radius.card,
+    padding: spacing.large,
     alignItems: "center",
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 18,
+    elevation: 5,
   },
-  addT: { color: "#fff", fontSize: 16 },
+  addT: { color: colors.surface, fontSize: 16, fontWeight: "700" },
+  fab: {
+    position: "absolute",
+    right: spacing.page,
+    bottom: spacing.page,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing.small,
+    paddingHorizontal: spacing.large,
+    borderRadius: 999,
+    backgroundColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    elevation: 6,
+  },
+  fabText: {
+    marginLeft: spacing.xsmall,
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: "700",
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15,23,42,0.38)",
     justifyContent: "center",
-    padding: 16,
+    padding: spacing.page,
   },
   calendarSheet: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    elevation: 8,
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    padding: spacing.medium,
+    shadowColor: shadow.shadowColor,
+    shadowOffset: shadow.shadowOffset,
+    shadowOpacity: shadow.shadowOpacity,
+    shadowRadius: shadow.shadowRadius,
+    elevation: shadow.elevation,
   },
   calendarTitle: {
     fontSize: 17,
     fontWeight: "700",
-    color: "#111827",
-    marginBottom: 6,
+    color: colors.text,
+    marginBottom: spacing.small,
   },
-  calendar: { borderRadius: 10 },
-  calendarArrow: { color: "#2e86de", fontSize: 30, fontWeight: "800" },
+  calendar: { borderRadius: radius.input },
+  calendarArrow: { color: colors.primary, fontSize: 30, fontWeight: "800" },
   calendarActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    gap: 12,
-    marginTop: 16,
+    gap: spacing.small,
+    marginTop: spacing.medium,
   },
   todayBtn: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 6,
-    backgroundColor: "#e7f1ff",
+    borderRadius: radius.input,
+    backgroundColor: colors.primarySoft,
   },
-  todayBtnT: { color: "#2e86de", fontWeight: "600" },
+  todayBtnT: { color: colors.primary, fontWeight: "600" },
   cancelBtn: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 6,
-    backgroundColor: "#f1f3f5",
+    borderRadius: radius.input,
+    backgroundColor: colors.surfaceSoft,
   },
-  cancelBtnT: { color: "#333", fontWeight: "600" },
+  cancelBtnT: { color: colors.text, fontWeight: "600" },
 });
